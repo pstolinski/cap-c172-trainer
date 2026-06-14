@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>C172S G1000 Cockpit Trainer — Photo Mode</title>
 <style>
   :root{--ink:#111;--muted:#666;--accent:#0a66c2;--good:#1a7f4b;--warn:#b8860b;--bad:#c00;
@@ -46,12 +46,14 @@
     border-radius:5px;color:#155f3b;font-size:13px;font-weight:700}
   .hint{font-size:11px;color:#777;margin-top:9px;line-height:1.4}
   #panelscroll{flex:3 1 600px;min-width:330px;overflow-x:auto;border-radius:14px}
-  #panel{position:relative;width:100%;min-width:520px;min-height:360px;border-radius:6px;overflow:hidden;background:#fff;border:1px solid var(--line)}
+  #panel{position:relative;width:100%;min-width:520px;min-height:360px;border-radius:6px;overflow:hidden;background:#fff;border:1px solid var(--line);will-change:transform}
   #bg{display:none;width:100%;height:auto}
   #noimg{display:flex;position:absolute;inset:0;flex-direction:column;gap:14px;align-items:center;justify-content:center;
     text-align:center;padding:30px;background:#f6f6f6;color:#555;font-size:14px;line-height:1.6;min-height:360px}
   /* controls (hidden until a photo is loaded) */
-  .ctrl{position:absolute;transform:translate(-50%,-50%);display:none;flex-direction:column;align-items:center;
+  /* counter-scale (var --inv = 1/zoom) keeps each control a constant on-screen size at any pinch zoom */
+  .ctrl{position:absolute;transform:translate(-50%,-50%) scale(var(--inv,1));transform-origin:center center;
+    display:none;flex-direction:column;align-items:center;
     gap:2px;cursor:pointer;user-select:none;z-index:5;touch-action:none}
   body.hasimg .ctrl{display:flex}
   .ctrl.down{flex-direction:column-reverse}
@@ -62,7 +64,7 @@
   .ctrl.warnstate .val{background:var(--warn);color:#241a00}
   .ctrl .sw{position:relative;border-radius:5px;background:rgba(20,24,30,.55);border:1.5px solid rgba(255,255,255,.45)}
   .rocker{width:12px;height:16px}.dial{width:24px;height:24px;border-radius:50%}
-  .knob{width:16px;height:22px}.slot{width:10px;height:28px}.trimw{width:14px;height:20px}
+  .knob{width:16px;height:22px}.slot{width:12px;height:28px}.trimw{width:14px;height:20px}
   .pushbtn{width:15px;height:10px;border-radius:3px}
   .zone{border-radius:6px;background:rgba(255,170,40,.10);border:2px dashed rgba(255,170,40,.85)}
   .ctrl.target .zone{animation:zonepulse 1.1s infinite;border-color:#ff9d00;border-style:solid}
@@ -108,10 +110,15 @@
   body.phone .wrap{padding:6px;gap:6px}
   body.phone #panel{min-width:0}
   body.phone #panelscroll{min-width:0;overflow:hidden;touch-action:none}
-  body.phone .ctrl{padding:9px}
-  body.phone .ctrl .sw{transform:scale(1.5)}
+  body.phone .ctrl{padding:13px}
+  body.phone .ctrl .sw{transform:scale(1.7)}
   body.phone .ctrl .sw.zone{transform:none}
-  body.phone .ctrl .cap,body.phone .ctrl .val{font-size:9px}
+  body.phone .ctrl .cap,body.phone .ctrl .val{font-size:10px}
+  /* the lit step's control floats above its neighbours and grows a touch so it's always the easy tap */
+  body.phone .ctrl.target{z-index:40;padding:16px}
+  body.phone .ctrl.target .sw{transform:scale(2)}
+  /* the app owns pinch-zoom on the panel; stop native page-zoom firing on the bars */
+  body.phone header,body.phone #stepbar{touch-action:none}
   #stepbar{display:none;position:sticky;top:0;z-index:55;background:#fff;border-bottom:2px solid var(--cap-red);box-shadow:0 2px 8px rgba(0,0,0,.12)}
   body.phone #stepbar{display:block}
   #sb-prog{height:4px;background:#e2e2e2}#sb-progfill{height:100%;width:0;background:var(--good);transition:width .3s}
@@ -125,7 +132,7 @@
   #sheet{position:fixed;left:0;right:0;bottom:0;z-index:400;background:#fff;border-radius:16px 16px 0 0;box-shadow:0 -8px 40px rgba(0,0,0,.35);transform:translateY(105%);transition:transform .25s;max-height:70vh;display:flex;flex-direction:column}
   #sheet.open{transform:translateY(0)}
   #sheet-head{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;font-weight:800;border-bottom:1px solid var(--line)}
-  #sheet-body{overflow:auto;padding:8px 12px 20px}
+  #sheet-body{overflow:auto;padding:8px 12px 20px;padding-bottom:max(20px,env(safe-area-inset-bottom))}
 </style>
 </head>
 <body>
@@ -381,7 +388,7 @@ const panel=document.getElementById("panel");
 /* ---- photo loading ---- */
 function revealPhoto(){const img=document.getElementById("bg");img.style.display="block";
  document.getElementById("noimg").style.display="none";document.body.classList.add("hasimg");
- restorePositions();paintAll();}
+ restorePositions();paintAll();resizeZones();requestAnimationFrame(reflyCurrent);}
 document.getElementById("bg").addEventListener("load",revealPhoto);
 document.getElementById("bg").addEventListener("error",()=>{document.getElementById("noimg").style.display="flex";});
 function loadImageFile(file){if(!file)return;const r=new FileReader();
@@ -445,7 +452,7 @@ function onClick(id,e){
 }
 function enableDrag(el,id){
  let dragging=false;
- el.addEventListener("pointerdown",e=>{if(!calibrate)return;e.preventDefault();dragging=true;el.setPointerCapture(e.pointerId);});
+ el.addEventListener("pointerdown",e=>{if(!calibrate)return;e.preventDefault();dragging=true;try{el.setPointerCapture(e.pointerId);}catch(_){}},{passive:false});
  el.addEventListener("pointermove",e=>{if(!calibrate||!dragging)return;
    const r=panel.getBoundingClientRect();
    let x=(e.clientX-r.left)/r.width*100,y=(e.clientY-r.top)/r.height*100;
@@ -484,7 +491,7 @@ function renderStep(){
  prog.style.width=(stepIdx/steps.length*100)+"%";
  if(mode!=="guided"||calibrate){ackbtn.style.display="none";syncPhoneBar();return;}
  if(stepIdx>=steps.length){ackbtn.style.display="none";document.getElementById("done-msg").style.display="block";
-  prog.style.width="100%";toast("Checklist complete ✓");syncPhoneBar();return;}
+  prog.style.width="100%";toast("Checklist complete ✓");syncPhoneBar();reflyCurrent();return;}
  const li=document.querySelectorAll("#steps li")[stepIdx];li.classList.add("current");
  if(!document.body.classList.contains("phone")||document.getElementById("sheet").classList.contains("open"))li.scrollIntoView({block:"nearest"});
  const s=steps[stepIdx];
@@ -494,6 +501,7 @@ function renderStep(){
    ackbtn.textContent="✓ "+s.txt.split("—")[0].trim()+" — VERIFY (already set)";}
   else ackbtn.style.display="none";}
  syncPhoneBar();
+ reflyCurrent();
 }
 document.getElementById("ackbtn").addEventListener("click",markDone);
 function showHelp(id,e){
@@ -582,15 +590,45 @@ function syncPhoneBar(){
 const pscroll=document.getElementById("panelscroll");
 let pz={s:1,tx:0,ty:0},pzPts=new Map(),pzStart=null,pzMoved=false,lastTap=0,lastTapXY=null;
 panel.style.transformOrigin="0 0";
-function pzApply(){panel.style.transform=(pz.s===1&&!pz.tx&&!pz.ty)?"":`translate(${pz.tx}px,${pz.ty}px) scale(${pz.s})`;}
-function pzClamp(){
- const r=pscroll.getBoundingClientRect(),w=panel.clientWidth*pz.s,h=panel.clientHeight*pz.s;
- pz.tx=Math.min(0,Math.max(r.width-w,pz.tx));
- pz.ty=Math.min(0,Math.max(Math.min(0,r.height-h),pz.ty));
- if(w<=r.width)pz.tx=0;if(h<=r.height)pz.ty=0;
+function pzApply(){panel.style.transform=(pz.s===1&&!pz.tx&&!pz.ty)?"":`translate(${pz.tx}px,${pz.ty}px) scale(${pz.s})`;
+ panel.style.setProperty("--inv",(1/pz.s).toFixed(4));}
+function clampPZ(p){
+ const r=pscroll.getBoundingClientRect(),w=panel.clientWidth*p.s,h=panel.clientHeight*p.s;
+ p.tx=Math.min(0,Math.max(r.width-w,p.tx));
+ p.ty=Math.min(0,Math.max(Math.min(0,r.height-h),p.ty));
+ if(w<=r.width)p.tx=0;if(h<=r.height)p.ty=0;return p;
+}
+function pzClamp(){clampPZ(pz);}
+/* ---- programmatic fly-to (guided auto-zoom-to-step) ---- */
+const FLY_ZOOM=3.6;let flyRAF=null;
+function cancelFly(){if(flyRAF){cancelAnimationFrame(flyRAF);flyRAF=null;clampPZ(pz);pzApply();}}
+function animateTo(target){
+ clampPZ(target);cancelFly();
+ const s0=pz.s,x0=pz.tx,y0=pz.ty,t0=performance.now(),dur=380,
+  ez=t=>t<.5?4*t*t*t:1-Math.pow(-2*t+2,3)/2;
+ (function frame(now){
+  const k=Math.min(1,(now-t0)/dur),e=ez(k);
+  pz.s=s0+(target.s-s0)*e;pz.tx=x0+(target.tx-x0)*e;pz.ty=y0+(target.ty-y0)*e;
+  pzApply();flyRAF=k<1?requestAnimationFrame(frame):null;
+ })(performance.now());
+}
+function flyToPos(pos,scale){
+ if(panel.clientWidth<10)return;
+ const r=pscroll.getBoundingClientRect(),w=panel.clientWidth,h=panel.clientHeight,s=scale;
+ animateTo({s:s,tx:r.width/2-s*(pos[0]/100*w),ty:r.height/2-s*(pos[1]/100*h)});
+}
+function flyFit(){animateTo({s:1,tx:0,ty:0});}
+/* re-centre/zoom on whatever the current guided step points at (phone only) */
+function reflyCurrent(){
+ if(!document.body.classList.contains("phone")||mode!=="guided"||calibrate)return;
+ if(!document.body.classList.contains("hasimg"))return; /* wait for real image dimensions */
+ const steps=CHECKLISTS[currentCL].steps,s=steps[stepIdx];
+ if(stepIdx>=steps.length||!s||!s.c||!CONTROLS[s.c]){flyFit();return;}
+ flyToPos(CONTROLS[s.c].pos,FLY_ZOOM);
 }
 pscroll.addEventListener("pointerdown",e=>{
  if(!document.body.classList.contains("phone")||calibrate)return;
+ cancelFly();
  pzPts.set(e.pointerId,{x:e.clientX,y:e.clientY});
  if(pzPts.size===2){const a=[...pzPts.values()];
   pzStart={d:Math.hypot(a[0].x-a[1].x,a[0].y-a[1].y),s:pz.s,tx:pz.tx,ty:pz.ty,
@@ -634,7 +672,7 @@ function pzEnd(e){
 }
 pscroll.addEventListener("pointerup",pzEnd);
 pscroll.addEventListener("pointercancel",pzEnd);
-pscroll.addEventListener("click",e=>{if(pzMoved){e.stopPropagation();e.preventDefault();}},true);
+pscroll.addEventListener("click",e=>{if(pzMoved){pzMoved=false;e.stopPropagation();e.preventDefault();}},true);
 
 /* ---- phone / desktop UI switch ---- */
 const UIKEY="c172ui";
@@ -658,6 +696,7 @@ document.getElementById("ch-phone").addEventListener("click",()=>{document.getEl
 document.getElementById("ch-desktop").addEventListener("click",()=>{document.getElementById("uichooser").style.display="none";applyUI("desktop");});
 document.getElementById("uibtn").addEventListener("click",()=>applyUI(document.body.classList.contains("phone")?"desktop":"phone"));
 document.getElementById("sb-list").addEventListener("click",()=>document.getElementById("sheet").classList.toggle("open"));
+document.getElementById("sb-txt").addEventListener("click",()=>reflyCurrent());
 document.getElementById("sheet-close").addEventListener("click",()=>document.getElementById("sheet").classList.remove("open"));
 document.getElementById("sb-btn").addEventListener("click",function(){if(this.style.visibility!=="hidden")markDone();});
 
